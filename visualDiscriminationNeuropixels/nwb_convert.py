@@ -1,19 +1,20 @@
 from datetime import datetime
 from dateutil.tz import tzlocal
 from pynwb import NWBFile, NWBHDF5IO, TimeSeries, ProcessingModule
-from pynwb.behavior import BehavioralEvents, BehavioralEpochs, BehavioralTimeSeries, \
-    Position, PupilTracking, IntervalSeries, SpatialSeries
+from pynwb.behavior import BehavioralEvents, BehavioralEpochs, BehavioralTimeSeries, Position, PupilTracking, \
+    IntervalSeries, SpatialSeries
 import numpy as np
 
 ################################################################################
 # CREATE FILE
-
 nwb_file = NWBFile(
     session_description='Test to see if building a file works',
     identifier='Test1',
     session_start_time=datetime(2016, 12, 14, tzinfo=tzlocal()),
     file_create_date=datetime.now(tzlocal())
 )
+
+behavior_module = ProcessingModule('behavior', 'behavior module')
 ################################################################################
 # PROCESS DATA
 
@@ -50,8 +51,6 @@ def eye_nwb(timestamps, area, xy_pos):
     :param area: numpy array, area of pupil
     :param xy_pos: numpy array, XY positions for pupil
     """
-    eye_module = ProcessingModule('eye', 'Features extracted from the video of the right eye.')
-    nwb_file.add_processing_module(eye_module)
     pupil = TimeSeries(
         name='eye_area',
         timestamps=timestamps,
@@ -77,8 +76,8 @@ def eye_nwb(timestamps, area, xy_pos):
     )
     position = Position(eye_xy)
     pupil_track = PupilTracking(pupil)
-    eye_module.add_data_interface(position)
-    eye_module.add_data_interface(pupil_track)
+    behavior_module.add_data_interface(position)
+    behavior_module.add_data_interface(pupil_track)
 
 
 eye_nwb(eye_timestamps, eye_area, eye_xyPos)
@@ -95,9 +94,6 @@ def face_nwb(motion_energy, timestamps):
     :param motion_energy: numpy array
     :param timestamps: numpy array, timestamps are interpolated between two points in second column of array
     """
-    face_module = ProcessingModule('face', 'Features extracted from the video of the frontal aspect '
-                                           'of the subject, including the subject\'s face and forearms.')
-    nwb_file.add_processing_module(face_module)
     timestamps = interpol_timestamps(timestamps)
     face_energy = TimeSeries(
         name='face_motion_energy',
@@ -111,7 +107,7 @@ def face_nwb(motion_energy, timestamps):
                  'before this operation.'
     )
     face_interface = BehavioralTimeSeries(face_energy)
-    face_module.add_data_interface(face_interface)
+    behavior_module.add_data_interface(face_interface)
 
 
 face_nwb(face_motionEnergy, face_timestamps)
@@ -150,15 +146,13 @@ def lick_times(times):
     Lick ProcessingModule for Lick BehavioralEvents
     :param times: :param times: numpy array of lick timing
     """
-    lick_module = ProcessingModule('lick', 'Extracted times of licks, from the lickPiezo signal.')
-    nwb_file.add_processing_module(lick_module)
     lick_ts = TimeSeries(
         name='lick_times',
         timestamps=np.ravel(times),
         description='Extracted times of licks, from the lickPiezo signal.'
     )
     lick_bev = BehavioralEvents(lick_ts)
-    lick_module.add_data_interface(lick_bev)
+    behavior_module.add_data_interface(lick_bev)
 
 
 lick_times(lick_times_np)
@@ -230,8 +224,6 @@ def wheel_moves(types, intervals):
     :param intervals: numpy array, start/stop times separated by space
     """
     types = types.astype(int)
-    wheel_m_module = ProcessingModule('wheelMoves', '')
-    nwb_file.add_processing_module(wheel_m_module)
     wheel_moves_intv = IntervalSeries(
         name='wheel_moves',
         timestamps=np.ravel(intervals),
@@ -248,14 +240,82 @@ def wheel_moves(types, intervals):
                  'criteria are flinch/unclassified type.'
     )
     wheel_moves_be = BehavioralEpochs(wheel_moves_intv)
-    wheel_m_module.add_data_interface(wheel_moves_be)
+    behavior_module.add_data_interface(wheel_moves_be)
 
 
 wheel_moves(wheelMoves_type, wheelMoves_intervals)
 
 
 ################################################################################
+# TRIALS
+
+included = read_npy_file('trials.included.npy')
+included = np.ravel(included)
+
+# TODO: include only "included trials" in data? add to acquisition as well?
+
+fb_type = read_npy_file('trials.feedbackType.npy')
+fb_type = fb_type[included]
+fb_time = read_npy_file('trials.feedback_times.npy')
+fb_time = fb_time[included]
+go_cue = read_npy_file('trials.goCue_times.npy')
+go_cue = go_cue[included]
+interv = read_npy_file('trials.intervals.npy')
+interv = interv[included]
+rep_num = read_npy_file('trials.repNum.npy')
+rep_num = rep_num[included]
+response_choice = read_npy_file('trials.response_choice.npy')
+response_choice = response_choice[included]
+response_times = read_npy_file('trials.response_times.npy')
+response_times = response_times[included]
+
+
+def trial_table():
+    """
+    Adds trial data to the nwb file as a table
+    """
+    for i in range(len(interv)):
+        nwb_file.add_trial(interv[i, 0], interv[i, 1])
+
+    nwb_file.add_trial_column('go_cue', 'description', go_cue)
+    nwb_file.add_trial_column('feedback_time', 'description', fb_time)
+    nwb_file.add_trial_column('feedback_type', 'description', fb_type)
+    nwb_file.add_trial_column('response_choice', 'description', response_choice)
+    nwb_file.add_trial_column('response_time', 'description', response_times)
+    nwb_file.add_trial_column('rep_num', 'description', rep_num)
+
+
+trial_table()
+################################################################################
+# SPARSE NOISE
+
+
+def sparse_noise(timestamps, pos):
+    """
+    :param timestamps: numpy array
+    :param pos: numpy array,
+    """
+    # TODO: stimulus?
+    sp_noise = TimeSeries(
+        name='sparseNoise_positions',
+        timestamps=np.ravel(timestamps),
+        data=pos,
+        unit='degrees visual angle',
+        description='White squares shown on the screen with randomized '
+                    'positions and timing - see manuscript Methods.',
+        comments='The altitude (first column) and azimuth (second column) '
+                 'of the square.'
+    )
+    nwb_file.add_stimulus(sp_noise)
+
+
+sparse_noise_pos = read_npy_file('sparseNoise.positions.npy')
+sparse_noise_time = read_npy_file('sparseNoise.times.npy')
+sparse_noise(sparse_noise_time, sparse_noise_pos)
+
+################################################################################
 # WRITE TO FILE
+
 
 with NWBHDF5IO('test_build_nwb_file.nwb', 'w') as io:
     io.write(nwb_file)
