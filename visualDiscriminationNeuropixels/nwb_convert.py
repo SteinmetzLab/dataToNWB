@@ -2,7 +2,8 @@ from datetime import datetime
 from dateutil.tz import tzlocal
 from pynwb import NWBFile, NWBHDF5IO, TimeSeries, ProcessingModule
 from pynwb.behavior import BehavioralEvents, BehavioralEpochs, BehavioralTimeSeries, Position, PupilTracking, \
-    IntervalSeries, SpatialSeries
+    IntervalSeries
+from pynwb.epoch import TimeIntervals
 import numpy as np
 
 ################################################################################
@@ -67,19 +68,18 @@ def eye():
                  'brighter overall luminance levels lead to relatively '
                  'constricted pupils.'
     )
-    eye_xy = SpatialSeries(
+    eye_xy = TimeSeries(
         name='eye_xy_positions',
         timestamps=eye_timestamps,
         data=eye_xy_pos,  # currently as [x, y] pairs
-        reference_frame='Video frame',
+        unit='arb. unit',
         description='Features extracted from the video of the right eye.',
         comments='The 2D position of the center of the pupil in the video '
                  'frame. This is not registered to degrees visual angle, but '
                  'could be used to detect saccades or other changes in eye position.'
     )
-    position = Position(eye_xy)
     pupil_track = PupilTracking(pupil)
-    behavior_module.add_data_interface(position)
+    pupil_track.add_timeseries(eye_xy)
     behavior_module.add_data_interface(pupil_track)
 
 
@@ -165,13 +165,17 @@ def spontaneous():
     Needs data from spontaneous.intervals.npy.
     """
     spont = read_npy_file('spontaneous.intervals.npy')
-    spontaneous_ts = TimeSeries(
+    spontaneous_ts = TimeIntervals(
         name='spontaneous',
-        timestamps=np.ravel(spont),
         description='Intervals of sufficient duration when nothing '
                     'else is going on (no task or stimulus presentation'
     )
-    nwb_file.add_acquisition(spontaneous_ts)
+    for i in range(len(spont[:, 0])):
+        spontaneous_ts.add_interval(
+            start_time=spont[i, 0],
+            stop_time=spont[i, 1],
+        )
+    nwb_file.add_time_intervals(spontaneous_ts)
 
 
 spontaneous()

@@ -15,9 +15,10 @@ print(wheel_pos.data[:])  # get actual data array
 # processing
 behavior = nwb_file_in.processing['behavior']
 print(behavior)
-print(behavior['Position'])
+print(behavior['PupilTracking'])
 
 # trials table
 intervals = nwb_file_in.intervals
 print(intervals['trials'].to_dataframe())
 print(intervals['trials']['feedback_type'].description)
+print(intervals['spontaneous'].to_dataframe())
