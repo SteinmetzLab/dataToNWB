@@ -96,10 +96,10 @@ waveform_duration = read_npy_file('clusters.waveformDuration.npy')
 spike_to_clusters = read_npy_file('spikes.clusters.npy')
 spike_times = read_npy_file('spikes.times.npy')
 spike_amps = read_npy_file('spikes.amps.npy')
-spike_amps = np.ravel(spike_amps)
 spike_depths = read_npy_file('spikes.depths.npy')
 
 # TODO: Take out index bounds later
+
 # Sorting spikes into clusters
 spike_to_clusters = spike_to_clusters[:200, :]
 cluster_info = dict()
@@ -110,16 +110,46 @@ for i in range(len(spike_to_clusters)):
     else:
         cluster_info[s].append(i)
 
-# Can take out after index bounds are removed when all clusters are included
-depths = list()
-annotations = list()
-c_channel = list()
-wave_duration = list()
+# Add Unit Columns
+nwb_file.add_unit_column(
+    name='spike_amps',
+    description='The peak-to-trough amplitude, obtained from the template and '
+                'template-scaling amplitude returned by Kilosort (not from the raw data).',
+)
+nwb_file.add_unit_column(
+    name='spike_depths',
+    description='The position of the center of mass of the spike on the probe, '
+                'determined from the principal component features returned by Kilosort. '
+                'The deepest channel on the probe is depth=0, and the most superficial is depth=3820.',
+)
+nwb_file.add_unit_column(
+    name='phy_annotations',
+    description='0 = noise (these are already excluded and don\'t appear in this '
+                'dataset at all); 1 = MUA (i.e. presumed to contain spikes from multiple '
+                'neurons; these are not analyzed in any analyses in the paper); 2 = Good '
+                '(manually labeled); 3 = Unsorted. In this dataset \'Good\' was applied '
+                'in a few but not all datasets to included neurons, so in general the '
+                'neurons with _phy_annotation>=2 are the ones that should be included.',
+)
+nwb_file.add_unit_column(
+    name='peak_channel',
+    description='The channel number of the location of the peak of the cluster\'s waveform.',
+)
+nwb_file.add_unit_column(
+    name='waveform_duration',
+    description='The trough-to-peak duration of the waveform on the peak channel.',
+)
 
 # Add Units
 for i in cluster_info:
     c = cluster_info[i]
     times = np.array(spike_times[c])
+    amps = spike_times[c]
+    depths = spike_depths[c]
+    annotations = phy_annotations[c]
+    channel = cluster_channel[c]
+    duration = waveform_duration[c]
+
     interval = np.empty((1, 2))
     interval[0, 0] = times.min()
     interval[0, 1] = times.max()
@@ -130,58 +160,16 @@ for i in cluster_info:
         electrodes=np.ravel(waveform_chans[c, :]),
         electrode_group=electrode_groups[cluster_probe[i]],
         # waveform_mean=waveform[c, :, :],
-        id=i
+        id=i,
+        spike_amps=amps[0],
+        spike_depths=depths[0],
+        phy_annotations=annotations[0],
+        peak_channel=channel[0],
+        waveform_duration=duration[0]
     )
-    # take out once bounds are removed
-    depths.append(np.array(np.ravel(spike_depths[c])))
-    annotations.append(phy_annotations[c])
-    c_channel.append(cluster_channel[c])
-    wave_duration.append(cluster_channel[c])
 
+print(waveform[0, :, :])
 
-amps = np.array([spike_amps[cluster_info[i]] for i in cluster_info.keys()])
-# amps = np.array(amps)
-depths = np.array(depths)
-c_channel = np.array(c_channel)
-wave_duration = np.array(wave_duration)
-
-
-# Add unit columns
-"""
-nwb_file.add_unit_column(
-    name='spike_amps',
-    description='The peak-to-trough amplitude, obtained from the template and '
-                'template-scaling amplitude returned by Kilosort (not from the raw data).',
-    data=amps
-)
-nwb_file.add_unit_column(
-    name='spike_depths',
-    description='The position of the center of mass of the spike on the probe, '
-                'determined from the principal component features returned by Kilosort. '
-                'The deepest channel on the probe is depth=0, and the most superficial is depth=3820.',
-    data=depths
-)
-nwb_file.add_unit_column(
-    name='phy_annotations',
-    description='0 = noise (these are already excluded and don\'t appear in this '
-                'dataset at all); 1 = MUA (i.e. presumed to contain spikes from multiple '
-                'neurons; these are not analyzed in any analyses in the paper); 2 = Good '
-                '(manually labeled); 3 = Unsorted. In this dataset \'Good\' was applied '
-                'in a few but not all datasets to included neurons, so in general the '
-                'neurons with _phy_annotation>=2 are the ones that should be included.',
-    data=annotations
-)
-nwb_file.add_unit_column(
-    name='peak_channel',
-    description='The channel number of the location of the peak of the cluster\'s waveform.',
-    data=c_channel
-)
-nwb_file.add_unit_column(
-    name='waveform_duration',
-    description='The trough-to-peak duration of the waveform on the peak channel.',
-    data=wave_duration
-)
-"""
 with NWBHDF5IO('test_neural_nwb_file.nwb', 'w') as io:
     io.write(nwb_file)
     print('saved')
