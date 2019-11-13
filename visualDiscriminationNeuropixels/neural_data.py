@@ -3,7 +3,7 @@ from dateutil.tz import tzlocal
 import pandas as pd
 import numpy as np
 from pynwb.device import Device
-from pynwb.ecephys import ElectrodeGroup
+from allensdk.brain_observatory.ecephys.nwb import EcephysProbe
 import pynwb
 from pynwb import NWBHDF5IO, NWBFile
 
@@ -34,14 +34,14 @@ probe_descriptions = list(probe_descriptions['description'])
 electrode_groups = list()
 for i in range(len(probe_descriptions)):
     probe_device = Device(name=str(i))
-    probe_electrode_group = ElectrodeGroup(
+    probe_electrode_group = EcephysProbe(
         name=str(i),
         description='Neuropixels Phase3A opt3',
         device=probe_device,
-        location=''
-        # sampling_rate=30000.0,
-        # lfp_sampling_rate=2500.0,
-        # has_lfp_data=True,
+        location='',
+        sampling_rate=30000.0,
+        lfp_sampling_rate=2500.0,
+        has_lfp_data=True
     )
     nwb_file.add_device(probe_device)
     electrode_groups.append(probe_electrode_group)
@@ -168,7 +168,6 @@ for i in cluster_info:
         waveform_duration=duration[0]
     )
 
-print(waveform[0, :, :])
 
 with NWBHDF5IO('test_neural_nwb_file.nwb', 'w') as io:
     io.write(nwb_file)
