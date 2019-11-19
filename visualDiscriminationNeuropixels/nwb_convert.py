@@ -1,15 +1,14 @@
+import pynwb
+import numpy as np
+import pandas as pd
 from datetime import datetime
 from dateutil.tz import tzlocal
 from pynwb import NWBFile, NWBHDF5IO, TimeSeries, ProcessingModule
-from pynwb.behavior import BehavioralEvents, BehavioralEpochs, BehavioralTimeSeries, Position, PupilTracking, \
-    IntervalSeries
-from pynwb.epoch import TimeIntervals
-import numpy as np
-import pandas as pd
 from pynwb.device import Device
+from pynwb.epoch import TimeIntervals
+from pynwb.behavior import BehavioralEvents, BehavioralEpochs, BehavioralTimeSeries, PupilTracking, IntervalSeries
 from allensdk.brain_observatory.ecephys.nwb import EcephysProbe
 from allensdk.brain_observatory.ecephys.write_nwb.__main__ import add_ragged_data_to_dynamic_table
-import pynwb
 
 ################################################################################
 # CREATE FILE
@@ -269,8 +268,9 @@ def trial_table():
     visual_right = read_npy_file('trials.visualStim_contrastRight.npy')
     visual_times = read_npy_file('trials.visualStim_times.npy')
 
-    for i in range(len(trial_intervals)):
-        nwb_file.add_trial(trial_intervals[i, 0], trial_intervals[i, 1])
+    for j in range(len(trial_intervals)):
+        nwb_file.add_trial(trial_intervals[j, 0], trial_intervals[j, 1])
+
     nwb_file.add_trial_column(
         'included',
         'Importantly, while this variable gives inclusion criteria according '
@@ -341,7 +341,6 @@ def trial_table():
 
 
 trial_table()
-# print(nwb_file.trials.to_dataframe())
 ################################################################################
 # STIMULUS
 
@@ -432,7 +431,10 @@ passive_stimulus()
 ################################################################################
 # NEURAL DATA
 
-# Devices and Electrode Groups
+# DEVICES & ELECTRODE GROUPS
+"""
+Add in probes as devices and electrode groups.
+"""
 probe_descriptions = pd.read_csv('probes.description.tsv', sep='\t')
 probe_descriptions = list(probe_descriptions['description'])
 electrode_groups = list()
@@ -450,10 +452,14 @@ for i in range(len(probe_descriptions)):
     nwb_file.add_device(probe_device)
     electrode_groups.append(probe_electrode_group)
     nwb_file.add_electrode_group(probe_electrode_group)
+
+# CHANNELS
+"""
+Add channel information into the Electrode Table.
+"""
+# Read data
 insertion_df = pd.read_csv('probes.insertion.tsv', sep='\t')
 insertion_df['probes'] = insertion_df.index.values
-
-# Channel Table
 channel_site = read_npy_file('channels.site.npy')
 channel_brain = pd.read_csv('channels.brainLocation.tsv', sep='\t')
 channel_probes = read_npy_file('channels.probe.npy')
@@ -464,6 +470,9 @@ channel_table['probes'] = channel_probes
 channel_table = channel_table.merge(insertion_df, 'left', 'probes')
 channel_table = pd.concat([channel_table, channel_brain], axis=1)
 nwb_file.electrodes = pynwb.file.ElectrodeTable().from_dataframe(channel_table, name='electrodes')
+temp = [electrode_groups[c] for c in channel_probes]
+
+# Add Electrode columns
 nwb_file.add_electrode_column(
     name='site_id',
     description='The site number, in within-probe numbering, of the channel '
@@ -484,10 +493,14 @@ nwb_file.add_electrode_column(
 nwb_file.add_electrode_column(
     name='group',
     description='electrode group for each channel',
-    data=[electrode_groups[c] for c in channel_probes]
+    data=np.asarray([electrode_groups[c] for c in channel_probes])
 )
 
-# Clusters/Spikes
+# CLUSTERS & SPIKES
+"""
+Add cluster information into the Unit Table.
+"""
+# Read data
 cluster_probe = read_npy_file('clusters.probes.npy')
 cluster_probe = np.ravel(cluster_probe.astype(int))
 cluster_channel = read_npy_file('clusters.peakChannel.npy')
@@ -503,7 +516,6 @@ spike_amps = read_npy_file('spikes.amps.npy')
 spike_depths = read_npy_file('spikes.depths.npy')
 
 # Sorting spikes into clusters
-# spike_to_clusters = spike_to_clusters[:2000, :]
 cluster_info = dict()
 for i in range(len(spike_to_clusters)):
     s = int(spike_to_clusters[i])
@@ -536,7 +548,8 @@ nwb_file.add_unit_column(
                 'relative to the probe. The deepest channel on the probe is depth=0, '
                 'and the most superficial is depth=3820.',
 )
-# Add Units
+
+# Add Units by cluster
 for i in cluster_info:
     c = cluster_info[i]
     times = np.array(spike_times[c])
@@ -560,6 +573,8 @@ for i in cluster_info:
         waveform_duration=duration,
         cluster_depths=cluster_depths[i]
     )
+
+# Add spike amps and depths
 amps = {}
 depths = {}
 
@@ -582,8 +597,9 @@ add_ragged_data_to_dynamic_table(
                        'determined from the principal component features returned by Kilosort. '
                        'The deepest channel on the probe is depth=0, and the most superficial is depth=3820.'
 )
-
+################################################################################
 # WRITE TO FILE
+
 with NWBHDF5IO('test_build_nwb_file.nwb', 'w') as io:
     io.write(nwb_file)
     print('saved')
