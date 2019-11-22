@@ -7,19 +7,28 @@ from pynwb import NWBFile, NWBHDF5IO, TimeSeries, ProcessingModule
 from pynwb.device import Device
 from pynwb.epoch import TimeIntervals
 from pynwb.behavior import BehavioralEvents, BehavioralEpochs, BehavioralTimeSeries, PupilTracking, IntervalSeries
-from allensdk.brain_observatory.ecephys.nwb import EcephysProbe
+from allensdk.brain_observatory.ecephys.nwb import EcephysProbe, EcephysLabMetaData
 from allensdk.brain_observatory.ecephys.write_nwb.__main__ import add_ragged_data_to_dynamic_table
 
 ################################################################################
 # CREATE FILE
 nwb_file = NWBFile(
-    session_description='Test to see if building a file works',
-    identifier='Test123',
-    session_start_time=datetime(2016, 12, 14, tzinfo=tzlocal()),
-    file_create_date=datetime.now(tzlocal()),
-    experimenter='name',
-    experiment_description='description',
-    institution='institution'  # add/fill out for real file
+    session_description='Neuropixels recording during visual discrimination in awake mice.',
+    identifier='Cori_2016-12-14',
+    session_start_time=datetime(2016, 12, 14, 12, 0, 0),
+    file_create_date=datetime.now(tzlocal())
+)
+
+nwb_file.add_lab_meta_data(
+    EcephysLabMetaData(
+        name='metadata',
+        specimen_name='Mus Musculus',
+        age_in_days=11.0,
+        full_genotype='tetO-G6s x CaMK-tTA',
+        strain='C57Bl6/J',
+        sex='F',
+        stimulus_name=''
+    )
 )
 
 behavior_module = ProcessingModule('behavior', 'behavior module')
