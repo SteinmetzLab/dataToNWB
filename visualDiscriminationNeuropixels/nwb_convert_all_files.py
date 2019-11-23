@@ -38,7 +38,7 @@ def create(identifier, age, genotype, sex, date):
     nwb_file.add_lab_meta_data(
         EcephysLabMetaData(
             name='metadata',
-            specimen_name='Mus Musculus',
+            specimen_name='Mus musculus',
             age_in_days=age,
             full_genotype=genotype,
             strain='C57Bl6/J',
@@ -657,8 +657,9 @@ def main():
         id_date = d.split('_', 1)
         s_id = id_date[0]
         date = id_date[1]
-        sex = subj[subj['Subject ID'] == s_id]['Sex'][0]
-        genotype = subj[subj['Subject ID'] == s_id]['Genotype'][0]
+        subj_index = subj[subj['Subject ID'] == s_id].index.values.astype(int)[0]
+        sex = subj[subj['Subject ID'] == s_id]['Sex'][subj_index]
+        genotype = subj[subj['Subject ID'] == s_id]['Genotype'][subj_index]
         age_index = sess[(sess['Subject ID'] == s_id) & (sess['Recording date'] == date)].index.values.astype(int)[0]
         age = sess['Subject age (weeks)'][age_index] * 7.0
         os.chdir("Data/" + d)
