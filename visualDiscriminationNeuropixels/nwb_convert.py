@@ -1,7 +1,7 @@
 import pynwb
 import numpy as np
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from dateutil.tz import tzlocal
 from pynwb import NWBFile, NWBHDF5IO, TimeSeries, ProcessingModule
 from pynwb.device import Device
@@ -15,15 +15,16 @@ from allensdk.brain_observatory.ecephys.write_nwb.__main__ import add_ragged_dat
 nwb_file = NWBFile(
     session_description='Neuropixels recording during visual discrimination in awake mice.',
     identifier='Cori_2016-12-14',
-    session_start_time=datetime(2016, 12, 14, 12, 0, 0),
-    file_create_date=datetime.now(tzlocal())
+    session_start_time=datetime(2016, 12, 14, 12, 0, 0, tzinfo=timezone(timedelta(0))),
+    file_create_date=datetime.now(tzlocal()),
+    institution='The Carandini & Harris Lab at University College London'
 )
 
 nwb_file.add_lab_meta_data(
     EcephysLabMetaData(
         name='metadata',
-        specimen_name='Mus Musculus',
-        age_in_days=11.0,
+        specimen_name='Mus musculus',
+        age_in_days=77.0,
         full_genotype='tetO-G6s x CaMK-tTA',
         strain='C57Bl6/J',
         sex='F',
