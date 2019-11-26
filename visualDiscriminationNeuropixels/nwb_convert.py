@@ -26,7 +26,14 @@ nwb_file = NWBFile(
     file_create_date=datetime.now(tzlocal()),
     institution='University College London',
     lab='The Carandini & Harris Lab',
-    subject=subject
+    subject=subject,
+    experimenter='Nick Steinmetz',
+    experiment_description='Large-scale Neuropixels recordings across brain regions '
+                           'of mice during a head-fixed visual discrimination task. ',
+    related_publications='DOI 10.1038/s41586-019-1787-x',
+    keywords=['Neural coding', 'Neuropixels', 'mouse', 'brain-wide',
+              'vision', 'visual discrimination', 'electrophysiology'],
+
 )
 
 behavior_module = ProcessingModule('behavior', 'behavior module')
@@ -45,13 +52,13 @@ def read_npy_file(filename):
     return np_arr
 
 
-def interpol_timestamps(timestamps):
+def get_rate(timestamps):
     """
-    Gets full timestamps array for (2, 2) timestamps array
+    Gets constant rate for (2, 2) array
     :param timestamps: (2, 2) numpy array
-    :return: timestamps as numpy array
+    :return: rate as float
     """
-    return np.linspace(timestamps[0, 1], timestamps[1, 1], timestamps[1, 0] + 1)
+    return (timestamps[1, 1] - timestamps[0, 1]) / (timestamps[1, 0])
 
 
 ################################################################################
@@ -106,12 +113,13 @@ def face_nwb():
     """
     face_motion_energy = read_npy_file('face.motionEnergy.npy')
     face_timestamps = read_npy_file('face.timestamps.npy')
-    face_timestamps = interpol_timestamps(face_timestamps)
+    face_rate = get_rate(face_timestamps)
     face_energy = TimeSeries(
         name='face_motion_energy',
-        timestamps=face_timestamps,
         data=np.ravel(face_motion_energy),
         unit='arb. unit',
+        starting_time=face_timestamps[0, 1],
+        rate=face_rate,
         description='Features extracted from the video of the frontal aspect of '
                     'the subject, including the subject\'s face and forearms.',
         comments='The integrated motion energy across the whole frame, i.e. '
@@ -134,10 +142,11 @@ def lick_piezo():
     """
     lp_raw = read_npy_file('lickPiezo.raw.npy')
     lp_timestamps = read_npy_file('lickPiezo.timestamps.npy')
-    lp_timestamps = interpol_timestamps(lp_timestamps)
+    lp_rate = get_rate(lp_timestamps)
     lick_piezo_ts = TimeSeries(
         name='lickPiezo',
-        timestamps=lp_timestamps,
+        starting_time=lp_timestamps[0, 1],
+        rate=lp_rate,
         data=np.ravel(lp_raw),
         unit='V',
         description='Voltage values from a thin-film piezo connected to the '
@@ -203,11 +212,12 @@ def wheel():
     """
     wheel_pos = read_npy_file('wheel.position.npy')
     wheel_timestamps = read_npy_file('wheel.timestamps.npy')
-    wheel_timestamps = interpol_timestamps(wheel_timestamps)
+    wheel_rate = get_rate(wheel_timestamps)
 
     wheel_ts = TimeSeries(
         name='wheel_position',
-        timestamps=wheel_timestamps,
+        starting_time=wheel_timestamps[0, 1],
+        rate=wheel_rate,
         data=np.ravel(wheel_pos),
         unit='mm',
         conversion=0.135,
@@ -458,7 +468,7 @@ electrode_groups = list()
 for i in range(len(probe_descriptions)):
     probe_device = Device(name=str(i))
     probe_electrode_group = ElectrodeGroup(
-        name=str(i),
+        name='Probe' + str(i + 1),
         description='Neuropixels Phase3A opt3',
         device=probe_device,
         location=''
@@ -480,7 +490,6 @@ channel_brain = pd.read_csv('channels.brainLocation.tsv', sep='\t')
 
 channel_probes = read_npy_file('channels.probe.npy')
 channel_probes = np.ravel(channel_probes.astype(int))
-channel_table = pd.DataFrame()
 channel_table = pd.DataFrame(columns=['group_name'])
 channel_table['group_name'] = channel_probes
 channel_table = channel_table.merge(insertion_df, 'left', 'group_name')
@@ -492,7 +501,6 @@ vertical_angle = np.array(channel_table['vertical_angle'])
 horizontal_angle = np.array(channel_table['horizontal_angle'])
 distance_advanced = np.array(channel_table['distance_advanced'])
 
-group_names = np.array(channel_table['group_name'])
 locations = np.array(channel_brain['allen_ontology'])
 groups = np.asarray([electrode_groups[c] for c in channel_probes])
 channel_site_pos = read_npy_file('channels.sitePositions.npy')

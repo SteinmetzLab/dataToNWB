@@ -11,8 +11,8 @@ from dateutil.tz import tzlocal
 from pynwb import NWBFile, NWBHDF5IO, TimeSeries, ProcessingModule
 from pynwb.device import Device
 from pynwb.epoch import TimeIntervals
+from pynwb.ecephys import ElectrodeGroup
 from pynwb.behavior import BehavioralEvents, BehavioralEpochs, BehavioralTimeSeries, PupilTracking, IntervalSeries
-from allensdk.brain_observatory.ecephys.nwb import EcephysProbe, EcephysLabMetaData
 from allensdk.brain_observatory.ecephys.write_nwb.__main__ import add_ragged_data_to_dynamic_table
 
 ################################################################################
@@ -28,23 +28,27 @@ def create(identifier, age, genotype, sex, date):
     :param date: a list [year, month, day]
     :return: new NWB file
     """
+    subject = pynwb.file.Subject(
+        age=str(age),
+        genotype=genotype,
+        sex=sex,
+        species='Mus musculus',
+        description='strain: C57Bl6/J'
+    )
     nwb_file = NWBFile(
         session_description='Neuropixels recording during visual discrimination in awake mice.',
         identifier=identifier,
         session_start_time=datetime(date[0], date[1], date[2], 12, 0, 0, tzinfo=timezone(timedelta(0))),
         file_create_date=datetime.now(tzlocal()),
-        institution='The Carandini & Harris Lab at University College London'
-    )
-    nwb_file.add_lab_meta_data(
-        EcephysLabMetaData(
-            name='metadata',
-            specimen_name='Mus musculus',
-            age_in_days=age,
-            full_genotype=genotype,
-            strain='C57Bl6/J',
-            sex=sex,
-            stimulus_name=''
-        )
+        institution='University College London',
+        lab='The Carandini & Harris Lab',
+        subject=subject,
+        experimenter='Nick Steinmetz',
+        experiment_description='Large-scale Neuropixels recordings across brain regions '
+                               'of mice during a head-fixed visual discrimination task. ',
+        related_publications='DOI 10.1038/s41586-019-1787-x',
+        keywords=['Neural coding', 'Neuropixels', 'mouse', 'brain-wide',
+                  'vision', 'visual discrimination', 'electrophysiology'],
     )
     return nwb_file
 
@@ -63,13 +67,13 @@ def read_npy_file(filename):
     return np_arr
 
 
-def interpol_timestamps(timestamps):
+def get_rate(timestamps):
     """
-    Gets full timestamps array for (2, 2) timestamps array
+    Gets constant rate for (2, 2) array
     :param timestamps: (2, 2) numpy array
-    :return: timestamps as numpy array
+    :return: rate as float
     """
-    return np.linspace(timestamps[0, 1], timestamps[1, 1], timestamps[1, 0] + 1)
+    return (timestamps[1, 1] - timestamps[0, 1]) / (timestamps[1, 0])
 
 
 ################################################################################
@@ -123,12 +127,13 @@ def face_nwb(behavior_module):
     """
     face_motion_energy = read_npy_file('face.motionEnergy.npy')
     face_timestamps = read_npy_file('face.timestamps.npy')
-    face_timestamps = interpol_timestamps(face_timestamps)
+    face_rate = get_rate(face_timestamps)
     face_energy = TimeSeries(
         name='face_motion_energy',
-        timestamps=face_timestamps,
         data=np.ravel(face_motion_energy),
         unit='arb. unit',
+        starting_time=face_timestamps[0, 1],
+        rate=face_rate,
         description='Features extracted from the video of the frontal aspect of '
                     'the subject, including the subject\'s face and forearms.',
         comments='The integrated motion energy across the whole frame, i.e. '
@@ -150,10 +155,11 @@ def lick_piezo(nwb_file):
     """
     lp_raw = read_npy_file('lickPiezo.raw.npy')
     lp_timestamps = read_npy_file('lickPiezo.timestamps.npy')
-    lp_timestamps = interpol_timestamps(lp_timestamps)
+    lp_rate = get_rate(lp_timestamps)
     lick_piezo_ts = TimeSeries(
         name='lickPiezo',
-        timestamps=lp_timestamps,
+        starting_time=lp_timestamps[0, 1],
+        rate=lp_rate,
         data=np.ravel(lp_raw),
         unit='V',
         description='Voltage values from a thin-film piezo connected to the '
@@ -172,6 +178,8 @@ def lick_times(behavior_module):
     lick_ts = TimeSeries(
         name='lick_times',
         timestamps=np.ravel(lick_timestamps),
+        data=np.full(len(lick_timestamps), True),
+        unit='',
         description='Extracted times of licks, from the lickPiezo signal.'
     )
     lick_bev = BehavioralEvents(lick_ts)
@@ -212,13 +220,15 @@ def wheel(nwb_file):
     """
     wheel_pos = read_npy_file('wheel.position.npy')
     wheel_timestamps = read_npy_file('wheel.timestamps.npy')
-    wheel_timestamps = interpol_timestamps(wheel_timestamps)
+    wheel_rate = get_rate(wheel_timestamps)
 
     wheel_ts = TimeSeries(
         name='wheel_position',
-        timestamps=wheel_timestamps,
+        starting_time=wheel_timestamps[0, 1],
+        rate=wheel_rate,
         data=np.ravel(wheel_pos),
-        unit='encoder ticks',
+        unit='mm',
+        conversion=0.135,
         description='The position reading of the rotary encoder attached to '
                     'the rubber wheel that the mouse pushes left and right '
                     'with his forelimbs.',
@@ -272,6 +282,7 @@ def trial_table(nwb_file):
     # Read data
     included = read_npy_file('trials.included.npy')
     fb_type = read_npy_file('trials.feedbackType.npy')
+    fb_type = fb_type.astype(int)
     fb_time = read_npy_file('trials.feedback_times.npy')
     go_cue = read_npy_file('trials.goCue_times.npy')
     trial_intervals = read_npy_file('trials.intervals.npy')
@@ -389,6 +400,8 @@ def passive_stimulus(nwb_file):
     beeps_ts = TimeSeries(
         name='passive_beeps',
         timestamps=np.ravel(passive_beeps),
+        data=np.full(len(passive_beeps), True),
+        unit='',
         description='Auditory tones of the same frequency as the auditory '
                     'tone cue in the task'
     )
@@ -398,6 +411,8 @@ def passive_stimulus(nwb_file):
     click_ts = TimeSeries(
         name='passive_click_times',
         timestamps=np.ravel(passive_clicks),
+        data=np.full(len(passive_clicks), True),
+        unit='',
         description='Opening of the reward valve, but with a clamp in place '
                     'such that no water flows. Therefore the auditory sound of '
                     'the valve is heard, but no water reward is obtained.'
@@ -431,6 +446,8 @@ def passive_stimulus(nwb_file):
     passive_white_noise = TimeSeries(
         name='passive_white_noise',
         timestamps=np.ravel(passive_noise),
+        data=np.full(len(passive_noise), True),
+        unit='',
         description='The sound that accompanies an incorrect response during the '
                     'discrimination task.'
     )
@@ -451,14 +468,11 @@ def neural_data(nwb_file):
     electrode_groups = list()
     for i in range(len(probe_descriptions)):
         probe_device = Device(name=str(i))
-        probe_electrode_group = EcephysProbe(
-            name=str(i),
+        probe_electrode_group = ElectrodeGroup(
+            name='Probe' + str(i + 1),
             description='Neuropixels Phase3A opt3',
             device=probe_device,
-            location='',
-            sampling_rate=30000.0,
-            lfp_sampling_rate=2500.0,
-            has_lfp_data=True
+            location=''
         )
         nwb_file.add_device(probe_device)
         electrode_groups.append(probe_electrode_group)
@@ -470,17 +484,38 @@ def neural_data(nwb_file):
     """
     # Read data
     insertion_df = pd.read_csv('probes.insertion.tsv', sep='\t')
-    insertion_df['probes'] = insertion_df.index.values
+    insertion_df['group_name'] = insertion_df.index.values
+
     channel_site = read_npy_file('channels.site.npy')
     channel_brain = pd.read_csv('channels.brainLocation.tsv', sep='\t')
+
     channel_probes = read_npy_file('channels.probe.npy')
     channel_probes = np.ravel(channel_probes.astype(int))
+    channel_table = pd.DataFrame(columns=['group_name'])
+    channel_table['group_name'] = channel_probes
+    channel_table = channel_table.merge(insertion_df, 'left', 'group_name')
+
+    entry_point_rl = np.array(channel_table['entry_point_rl'])
+    entry_point_ap = np.array(channel_table['entry_point_ap'])
+    axial_angle = np.array(channel_table['axial_angle'])
+    vertical_angle = np.array(channel_table['vertical_angle'])
+    horizontal_angle = np.array(channel_table['horizontal_angle'])
+    distance_advanced = np.array(channel_table['distance_advanced'])
+
+    locations = np.array(channel_brain['allen_ontology'])
+    groups = np.asarray([electrode_groups[c] for c in channel_probes])
     channel_site_pos = read_npy_file('channels.sitePositions.npy')
-    channel_table = pd.DataFrame(columns=['probes'])
-    channel_table['probes'] = channel_probes
-    channel_table = channel_table.merge(insertion_df, 'left', 'probes')
-    channel_table = pd.concat([channel_table, channel_brain], axis=1)
-    nwb_file.electrodes = pynwb.file.ElectrodeTable().from_dataframe(channel_table, name='electrodes')
+
+    for i in range(len(groups)):
+        nwb_file.add_electrode(
+            x=float('NaN'),
+            y=float('NaN'),
+            z=float('NaN'),
+            imp=float('NaN'),
+            location=str(locations[i]),
+            group=groups[i],
+            filtering='none'
+        )
 
     # Add Electrode columns
     nwb_file.add_electrode_column(
@@ -501,11 +536,57 @@ def neural_data(nwb_file):
         data=channel_site_pos
     )
     nwb_file.add_electrode_column(
-        name='group',
-        description='electrode group for each channel',
-        data=np.asarray([electrode_groups[c] for c in channel_probes])
+        name='ccf_ap',
+        description='The AP position in Allen Institute\'s Common Coordinate Framework.',
+        data=np.array(channel_brain['ccf_ap'])
+    )
+    nwb_file.add_electrode_column(
+        name='ccf_dv',
+        description='The DV position in Allen Institute\'s Common Coordinate Framework.',
+        data=np.array(channel_brain['ccf_dv'])
+    )
+    nwb_file.add_electrode_column(
+        name='ccf_lr',
+        description='The LR position in Allen Institute\'s Common Coordinate Framework.',
+        data=np.array(channel_brain['ccf_lr'])
     )
 
+    # Insertion
+    nwb_file.add_electrode_column(
+        name='entry_point_rl',
+        description='mediolateral position of probe entry point relative to midline (microns). '
+                    'Positive means right',
+        data=entry_point_rl
+    )
+    nwb_file.add_electrode_column(
+        name='entry_point_ap',
+        description='anteroposterior position of probe entry point relative to bregma (microns). '
+                    'Positive means anterior',
+        data=entry_point_ap
+    )
+    nwb_file.add_electrode_column(
+        name='vertical_angle',
+        description='vertical angle of probe (degrees). Zero means horizontal. '
+                    'Positive means pointing down',
+        data=vertical_angle
+    )
+    nwb_file.add_electrode_column(
+        name='horizontal_angle',
+        description='horizontal angle of probe (degrees), after vertical rotation. '
+                    'Zero means anterior. Positive means counterclockwise (i.e. left).',
+        data=horizontal_angle
+    )
+    nwb_file.add_electrode_column(
+        name='axial_angle',
+        description='axial angle of probe (degrees). Zero means that without vertical and horizontal rotations, '
+                    'the probe contacts would be pointing up. Positive means "counterclockwise.',
+        data=axial_angle
+    )
+    nwb_file.add_electrode_column(
+        name='distance_advanced',
+        description='How far the probe was moved forward from its entry point. (microns).',
+        data=distance_advanced
+    )
     # CLUSTERS & SPIKES
     """
     Add cluster information into the Unit Table.
@@ -556,7 +637,11 @@ def neural_data(nwb_file):
         name='cluster_depths',
         description='The position of the center of mass of the template of the cluster, '
                     'relative to the probe. The deepest channel on the probe is depth=0, '
-                    'and the most superficial is depth=3820.',
+                    'and the most superficial is depth=3820. Units: µm',
+    )
+    nwb_file.add_unit_column(
+        name='sampling_rate',
+        description='Sampling rate, in Hz.',
     )
 
     # Add Units by cluster
@@ -564,16 +649,14 @@ def neural_data(nwb_file):
         c = cluster_info[i]
         times = np.array(spike_times[c])
         annotations = phy_annotations[i]
+        annotations = annotations.astype(int)
         channel = cluster_channel[i]
+        channel = channel.astype(int)
         duration = waveform_duration[i]
-
-        interval = np.empty((1, 2))
-        interval[0, 0] = times.min()
-        interval[0, 1] = times.max()
+        duration = duration.astype(int)
 
         nwb_file.add_unit(
             spike_times=np.ravel(times),
-            obs_intervals=interval,
             electrodes=waveform_chans[i, :],
             electrode_group=electrode_groups[cluster_probe[i]],
             waveform_mean=waveform[i, :, :],
@@ -581,7 +664,8 @@ def neural_data(nwb_file):
             phy_annotations=annotations,
             peak_channel=channel,
             waveform_duration=duration,
-            cluster_depths=cluster_depths[i]
+            cluster_depths=cluster_depths[i],
+            sampling_rate=30000.0
         )
 
     # Add spike amps and depths
@@ -597,7 +681,7 @@ def neural_data(nwb_file):
         data=amps,
         column_name='spike_amps',
         column_description='The peak-to-trough amplitude, obtained from the template and '
-                    'template-scaling amplitude returned by Kilosort (not from the raw data).'
+                           'template-scaling amplitude returned by Kilosort (not from the raw data).'
     )
     add_ragged_data_to_dynamic_table(
         table=nwb_file.units,
@@ -661,7 +745,7 @@ def main():
         sex = subj[subj['Subject ID'] == s_id]['Sex'][subj_index]
         genotype = subj[subj['Subject ID'] == s_id]['Genotype'][subj_index]
         age_index = sess[(sess['Subject ID'] == s_id) & (sess['Recording date'] == date)].index.values.astype(int)[0]
-        age = sess['Subject age (weeks)'][age_index] * 7.0
+        age = sess['Subject age (weeks)'][age_index] * 7 + ' days'
         os.chdir("Data/" + d)
         date = date.split('-')
         date = [int(d) for d in date]
