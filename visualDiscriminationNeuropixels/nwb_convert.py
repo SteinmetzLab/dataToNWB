@@ -6,30 +6,27 @@ from dateutil.tz import tzlocal
 from pynwb import NWBFile, NWBHDF5IO, TimeSeries, ProcessingModule
 from pynwb.device import Device
 from pynwb.epoch import TimeIntervals
+from pynwb.ecephys import ElectrodeGroup
 from pynwb.behavior import BehavioralEvents, BehavioralEpochs, BehavioralTimeSeries, PupilTracking, IntervalSeries
-from allensdk.brain_observatory.ecephys.nwb import EcephysProbe, EcephysLabMetaData
 from allensdk.brain_observatory.ecephys.write_nwb.__main__ import add_ragged_data_to_dynamic_table
 
 ################################################################################
 # CREATE FILE
+subject = pynwb.file.Subject(
+    age='77',
+    genotype='tetO-G6s x CaMK-tTA',
+    sex='F',
+    species='Mus musculus',
+    description='strain: C57Bl6/J'
+)
 nwb_file = NWBFile(
     session_description='Neuropixels recording during visual discrimination in awake mice.',
     identifier='Cori_2016-12-14',
     session_start_time=datetime(2016, 12, 14, 12, 0, 0, tzinfo=timezone(timedelta(0))),
     file_create_date=datetime.now(tzlocal()),
-    institution='The Carandini & Harris Lab at University College London'
-)
-
-nwb_file.add_lab_meta_data(
-    EcephysLabMetaData(
-        name='metadata',
-        specimen_name='Mus musculus',
-        age_in_days=77.0,
-        full_genotype='tetO-G6s x CaMK-tTA',
-        strain='C57Bl6/J',
-        sex='F',
-        stimulus_name=''
-    )
+    institution='University College London',
+    lab='The Carandini & Harris Lab',
+    subject=subject
 )
 
 behavior_module = ProcessingModule('behavior', 'behavior module')
@@ -162,6 +159,8 @@ def lick_times():
     lick_ts = TimeSeries(
         name='lick_times',
         timestamps=np.ravel(lick_timestamps),
+        data=np.full(len(lick_timestamps), True),
+        unit='',
         description='Extracted times of licks, from the lickPiezo signal.'
     )
     lick_bev = BehavioralEvents(lick_ts)
@@ -210,7 +209,8 @@ def wheel():
         name='wheel_position',
         timestamps=wheel_timestamps,
         data=np.ravel(wheel_pos),
-        unit='encoder ticks',
+        unit='mm',
+        conversion=0.135,
         description='The position reading of the rotary encoder attached to '
                     'the rubber wheel that the mouse pushes left and right '
                     'with his forelimbs.',
@@ -268,6 +268,7 @@ def trial_table():
     # Read data
     included = read_npy_file('trials.included.npy')
     fb_type = read_npy_file('trials.feedbackType.npy')
+    fb_type = fb_type.astype(int)
     fb_time = read_npy_file('trials.feedback_times.npy')
     go_cue = read_npy_file('trials.goCue_times.npy')
     trial_intervals = read_npy_file('trials.intervals.npy')
@@ -389,6 +390,8 @@ def passive_stimulus():
     beeps_ts = TimeSeries(
         name='passive_beeps',
         timestamps=np.ravel(passive_beeps),
+        data=np.full(len(passive_beeps), True),
+        unit='',
         description='Auditory tones of the same frequency as the auditory '
                     'tone cue in the task'
     )
@@ -398,6 +401,8 @@ def passive_stimulus():
     click_ts = TimeSeries(
         name='passive_click_times',
         timestamps=np.ravel(passive_clicks),
+        data=np.full(len(passive_clicks), True),
+        unit='',
         description='Opening of the reward valve, but with a clamp in place '
                     'such that no water flows. Therefore the auditory sound of '
                     'the valve is heard, but no water reward is obtained.'
@@ -431,6 +436,8 @@ def passive_stimulus():
     passive_white_noise = TimeSeries(
         name='passive_white_noise',
         timestamps=np.ravel(passive_noise),
+        data=np.full(len(passive_noise), True),
+        unit='',
         description='The sound that accompanies an incorrect response during the '
                     'discrimination task.'
     )
@@ -450,14 +457,11 @@ probe_descriptions = list(probe_descriptions['description'])
 electrode_groups = list()
 for i in range(len(probe_descriptions)):
     probe_device = Device(name=str(i))
-    probe_electrode_group = EcephysProbe(
+    probe_electrode_group = ElectrodeGroup(
         name=str(i),
         description='Neuropixels Phase3A opt3',
         device=probe_device,
-        location='',
-        sampling_rate=30000.0,
-        lfp_sampling_rate=2500.0,
-        has_lfp_data=True
+        location=''
     )
     nwb_file.add_device(probe_device)
     electrode_groups.append(probe_electrode_group)
@@ -469,18 +473,40 @@ Add channel information into the Electrode Table.
 """
 # Read data
 insertion_df = pd.read_csv('probes.insertion.tsv', sep='\t')
-insertion_df['probes'] = insertion_df.index.values
+insertion_df['group_name'] = insertion_df.index.values
+
 channel_site = read_npy_file('channels.site.npy')
 channel_brain = pd.read_csv('channels.brainLocation.tsv', sep='\t')
+
 channel_probes = read_npy_file('channels.probe.npy')
 channel_probes = np.ravel(channel_probes.astype(int))
+channel_table = pd.DataFrame()
+channel_table = pd.DataFrame(columns=['group_name'])
+channel_table['group_name'] = channel_probes
+channel_table = channel_table.merge(insertion_df, 'left', 'group_name')
+
+entry_point_rl = np.array(channel_table['entry_point_rl'])
+entry_point_ap = np.array(channel_table['entry_point_ap'])
+axial_angle = np.array(channel_table['axial_angle'])
+vertical_angle = np.array(channel_table['vertical_angle'])
+horizontal_angle = np.array(channel_table['horizontal_angle'])
+distance_advanced = np.array(channel_table['distance_advanced'])
+
+group_names = np.array(channel_table['group_name'])
+locations = np.array(channel_brain['allen_ontology'])
+groups = np.asarray([electrode_groups[c] for c in channel_probes])
 channel_site_pos = read_npy_file('channels.sitePositions.npy')
-channel_table = pd.DataFrame(columns=['probes'])
-channel_table['probes'] = channel_probes
-channel_table = channel_table.merge(insertion_df, 'left', 'probes')
-channel_table = pd.concat([channel_table, channel_brain], axis=1)
-nwb_file.electrodes = pynwb.file.ElectrodeTable().from_dataframe(channel_table, name='electrodes')
-temp = [electrode_groups[c] for c in channel_probes]
+
+for i in range(len(groups)):
+    nwb_file.add_electrode(
+        x=float('NaN'),
+        y=float('NaN'),
+        z=float('NaN'),
+        imp=float('NaN'),
+        location=str(locations[i]),
+        group=groups[i],
+        filtering='none'
+    )
 
 # Add Electrode columns
 nwb_file.add_electrode_column(
@@ -501,11 +527,57 @@ nwb_file.add_electrode_column(
     data=channel_site_pos
 )
 nwb_file.add_electrode_column(
-    name='group',
-    description='electrode group for each channel',
-    data=np.asarray([electrode_groups[c] for c in channel_probes])
+    name='ccf_ap',
+    description='The AP position in Allen Institute\'s Common Coordinate Framework.',
+    data=np.array(channel_brain['ccf_ap'])
+)
+nwb_file.add_electrode_column(
+    name='ccf_dv',
+    description='The DV position in Allen Institute\'s Common Coordinate Framework.',
+    data=np.array(channel_brain['ccf_dv'])
+)
+nwb_file.add_electrode_column(
+    name='ccf_lr',
+    description='The LR position in Allen Institute\'s Common Coordinate Framework.',
+    data=np.array(channel_brain['ccf_lr'])
 )
 
+# Insertion
+nwb_file.add_electrode_column(
+    name='entry_point_rl',
+    description='mediolateral position of probe entry point relative to midline (microns). '
+                'Positive means right',
+    data=entry_point_rl
+)
+nwb_file.add_electrode_column(
+    name='entry_point_ap',
+    description='anteroposterior position of probe entry point relative to bregma (microns). '
+                'Positive means anterior',
+    data=entry_point_ap
+)
+nwb_file.add_electrode_column(
+    name='vertical_angle',
+    description='vertical angle of probe (degrees). Zero means horizontal. '
+                'Positive means pointing down',
+    data=vertical_angle
+)
+nwb_file.add_electrode_column(
+    name='horizontal_angle',
+    description='horizontal angle of probe (degrees), after vertical rotation. '
+                'Zero means anterior. Positive means counterclockwise (i.e. left).',
+    data=horizontal_angle
+)
+nwb_file.add_electrode_column(
+    name='axial_angle',
+    description='axial angle of probe (degrees). Zero means that without vertical and horizontal rotations, '
+                'the probe contacts would be pointing up. Positive means "counterclockwise.',
+    data=axial_angle
+)
+nwb_file.add_electrode_column(
+    name='distance_advanced',
+    description='How far the probe was moved forward from its entry point. (microns).',
+    data=distance_advanced
+)
 # CLUSTERS & SPIKES
 """
 Add cluster information into the Unit Table.
@@ -556,7 +628,11 @@ nwb_file.add_unit_column(
     name='cluster_depths',
     description='The position of the center of mass of the template of the cluster, '
                 'relative to the probe. The deepest channel on the probe is depth=0, '
-                'and the most superficial is depth=3820.',
+                'and the most superficial is depth=3820. Units: µm',
+)
+nwb_file.add_unit_column(
+    name='sampling_rate',
+    description='Sampling rate, in Hz.',
 )
 
 # Add Units by cluster
@@ -564,16 +640,14 @@ for i in cluster_info:
     c = cluster_info[i]
     times = np.array(spike_times[c])
     annotations = phy_annotations[i]
+    annotations = annotations.astype(int)
     channel = cluster_channel[i]
+    channel = channel.astype(int)
     duration = waveform_duration[i]
-
-    interval = np.empty((1, 2))
-    interval[0, 0] = times.min()
-    interval[0, 1] = times.max()
+    duration = duration.astype(int)
 
     nwb_file.add_unit(
         spike_times=np.ravel(times),
-        obs_intervals=interval,
         electrodes=waveform_chans[i, :],
         electrode_group=electrode_groups[cluster_probe[i]],
         waveform_mean=waveform[i, :, :],
@@ -581,7 +655,8 @@ for i in cluster_info:
         phy_annotations=annotations,
         peak_channel=channel,
         waveform_duration=duration,
-        cluster_depths=cluster_depths[i]
+        cluster_depths=cluster_depths[i],
+        sampling_rate=30000.0
     )
 
 # Add spike amps and depths
